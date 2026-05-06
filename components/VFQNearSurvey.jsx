@@ -10,9 +10,12 @@ import { track } from "@/lib/analytics";
  * - 스코어링: NEI VFQ-25 표준 변환식 (1=100, 2=75, 3=50, 4=25, 5=0, 6=NA)
  * - 분석: lib/analytics.js → GA4 (window.gtag) 로 전송
  * - 공유 링크: ?s=N (0~100) 형태로 점수 전달, 받는 사람은 SharedView 노출
+ * - 결과 화면 1차 CTA: 애프터눈 안과 목록 페이지로 직접 이동
  */
 
 // ============ 상수 ============
+const HOSPITALS_URL = "https://afternoon.clop.ai";
+
 const QUESTIONS = [
   "신문 혹은 책의 글자를 읽을 때 어느 정도 어려움을 느끼십니까?",
   "요리, 바느질, 가전제품 조작 등 손으로 하는 근거리 작업이나 취미 생활을 할 때 어느 정도 어려움을 느끼십니까?",
@@ -89,7 +92,6 @@ function interpret(score) {
   };
 }
 
-// 공유 URL 파싱: ?s=N (0~100, 정수) 만 유효한 값으로 인정
 function parseSharedScore() {
   if (typeof window === "undefined") return null;
   try {
@@ -104,7 +106,6 @@ function parseSharedScore() {
   }
 }
 
-// 공유 URL 생성: 현재 location 기반에 ?s 만 갱신
 function buildShareUrl(score) {
   const fallback = "https://afternoon.clop.ai/vfq-near";
   if (typeof window === "undefined") {
@@ -120,7 +121,6 @@ function buildShareUrl(score) {
   }
 }
 
-// 현재 URL에서 ?s 만 제거 (페이지 reload 없이)
 function clearSharedParam() {
   if (typeof window === "undefined") return;
   try {
@@ -135,16 +135,14 @@ function clearSharedParam() {
 
 // ============ 메인 ============
 export default function VFQNearSurvey() {
-  const [stage, setStage] = useState("landing"); // landing | shared_view | survey | results
+  const [stage, setStage] = useState("landing");
   const [idx, setIdx] = useState(0);
   const [answers, setAnswers] = useState(Array(6).fill(null));
   const [showShare, setShowShare] = useState(false);
-  const [showSave, setShowSave] = useState(false);
   const [shareToast, setShareToast] = useState("");
   const [sharedScore, setSharedScore] = useState(null);
   const initRef = useRef(false);
 
-  // 첫 마운트: 공유 링크 여부 판단
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
@@ -158,7 +156,6 @@ export default function VFQNearSurvey() {
     }
   }, []);
 
-  // 단계 전환 트래킹 (초기 마운트 제외 — 위에서 처리)
   useEffect(() => {
     if (!initRef.current) return;
     if (stage === "survey") track("vfq_question_view", { question_index: idx + 1 });
@@ -180,7 +177,6 @@ export default function VFQNearSurvey() {
     setStage("survey");
   };
 
-  // 공유받은 화면에서 "내 점수도 확인하기" → URL 정리 + 랜딩으로
   const handleStartFromShared = () => {
     track("vfq_shared_start_click", { shared_score: sharedScore });
     clearSharedParam();
@@ -215,9 +211,12 @@ export default function VFQNearSurvey() {
     setStage("landing");
   };
 
-  const handleSave = () => {
-    track("vfq_save_click", { score: result.score });
-    setShowSave(true);
+  // 새 핸들러: 애프터눈 안과 보기 → 외부 링크로 이동
+  const handleViewHospitals = () => {
+    track("vfq_view_hospitals_click", { score: result.score });
+    if (typeof window !== "undefined") {
+      window.location.href = HOSPITALS_URL;
+    }
   };
 
   const handleShare = async () => {
@@ -251,7 +250,6 @@ export default function VFQNearSurvey() {
     setShowShare(false);
   };
 
-  // ===== DS 토큰 =====
   const C = {
     primary: "#00CE90",
     primaryLight: "#E2FFF7",
@@ -310,7 +308,7 @@ export default function VFQNearSurvey() {
             answers={answers}
             result={result}
             interp={interp}
-            onSave={handleSave}
+            onViewHospitals={handleViewHospitals}
             onShare={handleShare}
             onRestart={handleRestart}
           />
@@ -335,60 +333,6 @@ export default function VFQNearSurvey() {
               </SheetButton>
             </div>
           </BottomSheet>
-        )}
-
-        {showSave && (
-          <Modal onClose={() => setShowSave(false)} C={C}>
-            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>
-              결과를 저장해두시겠어요?
-            </div>
-            <div style={{ fontSize: 16, color: C.sub, lineHeight: 1.5, marginBottom: 24 }}>
-              애프터눈에 간편 가입하시면 오늘 결과를 보관해두고
-              <br />
-              <b style={{ color: C.text }}>다음 검사 결과와 비교</b>해 볼 수 있어요.
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={() => {
-                  track("vfq_save_dismiss");
-                  setShowSave(false);
-                }}
-                style={{
-                  flex: 1,
-                  height: 56,
-                  borderRadius: 8,
-                  border: `1px solid ${C.border}`,
-                  background: C.card,
-                  color: C.sub,
-                  fontSize: 17,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                나중에
-              </button>
-              <button
-                onClick={() => {
-                  track("vfq_save_signup_redirect");
-                  const target = "https://afternoon.clop.ai/signup?from=vfq_near";
-                  if (typeof window !== "undefined") window.location.href = target;
-                }}
-                style={{
-                  flex: 1.4,
-                  height: 56,
-                  borderRadius: 8,
-                  border: "none",
-                  background: C.primary,
-                  color: "#fff",
-                  fontSize: 17,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                간편 가입하고 저장
-              </button>
-            </div>
-          </Modal>
         )}
 
         {shareToast && (
@@ -537,7 +481,6 @@ function SharedView({ C, score, interp, onStart }) {
         어떨까요?
       </h1>
 
-      {/* 공유받은 점수 카드 */}
       <div
         style={{
           padding: "32px 20px",
@@ -577,7 +520,6 @@ function SharedView({ C, score, interp, onStart }) {
         )}
       </div>
 
-      {/* 본인 검사 권유 */}
       <div
         style={{
           marginTop: 28,
@@ -794,7 +736,7 @@ function Survey({ C, idx, total, question, answer, onPick, onNext, onPrev }) {
   );
 }
 
-function Results({ C, answers, result, interp, onSave, onShare, onRestart }) {
+function Results({ C, answers, result, interp, onViewHospitals, onShare, onRestart }) {
   const { score, naCount } = result;
   return (
     <div style={{ padding: "16px 0 32px" }}>
@@ -869,23 +811,32 @@ function Results({ C, answers, result, interp, onSave, onShare, onRestart }) {
         )}
       </div>
 
+      {/* === 신규: 애프터눈 안과 보기 박스 (기존 저장 박스 자리) === */}
       <div
         style={{
           margin: "0 16px 16px",
           padding: "20px",
-          background: "#FFFDF5",
+          background: C.primaryLight,
           border: `1px solid ${C.divider}`,
           borderRadius: 12,
         }}
       >
-        <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 4 }}>
-          📌 지금 저장해두시면 비교 가능합니다
+        <div
+          style={{
+            fontSize: 16,
+            fontWeight: 700,
+            color: C.text,
+            marginBottom: 6,
+            lineHeight: 1.45,
+          }}
+        >
+          지금 애프터눈에서<br />검사결과지까지 제공하는<br />안과를 만나보세요
         </div>
-        <div style={{ fontSize: 14, color: C.sub, lineHeight: 1.5, marginBottom: 14 }}>
-          오늘 결과를 보관해두면, 다음 점검 때 변화를 한눈에 볼 수 있어요.
+        <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.5, marginBottom: 14 }}>
+          가까운 안과를 찾고, 검사 결과지까지 받아볼 수 있어요.
         </div>
         <button
-          onClick={onSave}
+          onClick={onViewHospitals}
           style={{
             width: "100%",
             height: 52,
@@ -898,7 +849,7 @@ function Results({ C, answers, result, interp, onSave, onShare, onRestart }) {
             cursor: "pointer",
           }}
         >
-          결과 저장하기
+          애프터눈 안과 보기
         </button>
       </div>
 
@@ -1031,36 +982,6 @@ function FixedCTA({ children, C }) {
           maxWidth: 480,
           padding: "12px 16px 16px",
           pointerEvents: "auto",
-        }}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Modal({ children, onClose, C }) {
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.5)",
-        zIndex: 50,
-        display: "flex",
-        alignItems: "flex-end",
-        justifyContent: "center",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "100%",
-          maxWidth: 480,
-          background: C.card,
-          borderRadius: "20px 20px 0 0",
-          padding: "28px 20px 24px",
         }}
       >
         {children}
