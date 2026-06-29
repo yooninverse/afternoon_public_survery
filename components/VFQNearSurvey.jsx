@@ -4,16 +4,13 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { track } from "@/lib/analytics";
 
 /**
- * AfterNOON · 근거리 시력 불편 자가점검 (모바일)
+ * AfterNOON · VFQ-NEAR 자가 설문 (모바일)
  * - DS: AfterNOON 디자인시스템 토큰 준수 (#00CE90 primary)
  * - 타깃: 60-70대 노안 — 본문 17~18px / 터치 64px+
  * - 스코어링: NEI VFQ-25 표준 변환식 (1=100, 2=75, 3=50, 4=25, 5=0, 6=NA)
  * - 분석: lib/analytics.js → GA4 (window.gtag) 로 전송
- * - 공유 링크:
- *     · 점수 포함: ?s=N (0~100) → SharedView
- *     · 설문만:    ?from=share → 랜딩에 추천 배지 노출
+ * - 공유 링크: ?s=N (0~100) 형태로 점수 전달, 받는 사람은 SharedView 노출
  * - 결과 화면 1차 CTA: 애프터눈 안과 목록 페이지로 직접 이동
- * - 결과 화면 위계: 안과 보기 → 공유 2종 → 응답 요약(정보) → 다시 하기
  */
 
 // ============ 상수 ============
@@ -62,52 +59,44 @@ function interpret(score) {
   if (score >= 80)
     return {
       emoji: "😊",
-      headline: "일상에서 불편함이 거의 없으시군요!",
-      message: "안과 정기방문을 통해 지금같은 시력을 유지해보세요.",
+      headline: "근거리 시생활이 편안한 편이에요",
+      message: "지금처럼 정기적인 안과 검진으로 컨디션을 유지해 보세요.",
       tone: "good",
     };
   if (score >= 60)
     return {
       emoji: "🙂",
-      headline: "큰 어려움은 없지만, 살펴볼 만해요",
-      message: "한 번쯤 안과에서 눈 상태를 점검해 보시길 권해드려요.",
+      headline: "큰 어려움은 없지만, 한 번쯤 살펴볼 만해요",
+      message: "최근 1년 내 안과 검진 이력이 없다면 점검을 권해드려요.",
       tone: "okay",
     };
   if (score >= 40)
     return {
       emoji: "😐",
-      headline: "종종 불편함을 느끼시네요",
-      message: "노안·백내장·안구건조 등이 영향을 줄 수 있어요. 안과에서 한 번 살펴보시길 권해드려요.",
+      headline: "근거리에서 종종 불편함이 느껴져요",
+      message: "노안·백내장·안구건조 등이 영향을 줄 수 있어요. 안과 상담을 권해드려요.",
       tone: "warn",
     };
   if (score >= 20)
     return {
       emoji: "😟",
-      headline: "불편함을 자주 느끼시네요",
-      message: "일상이 더 힘들어지기 전에 가까운 안과에서 검사를 받아보세요.",
+      headline: "근거리 작업에 자주 어려움을 겪고 계세요",
+      message: "일상 영향이 누적되기 전에 가까운 안과에서 검사를 받아보세요.",
       tone: "warn",
     };
   return {
     emoji: "😣",
-    headline: "시력 때문에 일상이 많이 힘드신 것 같아요",
-    message: "빠른 시일 내 안과에서 검사를 받아보시길 권해드려요.",
+    headline: "근거리 시생활에 상당한 어려움이 있어요",
+    message: "빠른 시일 내에 안과 검사를 받으시길 권해드려요.",
     tone: "bad",
   };
-}
-
-// 점수는 쿼리스트링(?s=)이 아니라 URL 프래그먼트(#s=)로 전달한다.
-// 프래그먼트는 서버/분석툴(GA page_location 등)로 전송되지 않으므로
-// 건강 자가점수가 분석 로그에 남지 않는다.
-function parseHashParams() {
-  if (typeof window === "undefined") return new URLSearchParams();
-  const hash = window.location.hash.replace(/^#/, "");
-  return new URLSearchParams(hash);
 }
 
 function parseSharedScore() {
   if (typeof window === "undefined") return null;
   try {
-    const s = parseHashParams().get("s");
+    const params = new URLSearchParams(window.location.search);
+    const s = params.get("s");
     if (s === null) return null;
     const n = parseInt(s, 10);
     if (!Number.isInteger(n) || n < 0 || n > 100) return null;
@@ -117,33 +106,16 @@ function parseSharedScore() {
   }
 }
 
-function parseReferral() {
-  if (typeof window === "undefined") return null;
-  try {
-    const from = parseHashParams().get("from");
-    return from === "share" ? "share" : null;
-  } catch {
-    return null;
-  }
-}
-
-function buildShareUrl(mode, score) {
+function buildShareUrl(score) {
   const fallback = "https://afternoon.clop.ai/vfq-near";
-  if (typeof window === "undefined") return fallback;
+  if (typeof window === "undefined") {
+    return score != null ? `${fallback}?s=${score}` : fallback;
+  }
   try {
     const u = new URL(window.location.href);
-    // 기존 점수/추천 파라미터는 쿼리·해시 양쪽에서 모두 제거
     u.searchParams.delete("s");
-    u.searchParams.delete("from");
-    u.hash = "";
-    const hashParams = new URLSearchParams();
-    if (mode === "with_score" && score != null) {
-      hashParams.set("s", String(score));
-    } else if (mode === "survey_only") {
-      hashParams.set("from", "share");
-    }
-    const h = hashParams.toString();
-    return u.toString() + (h ? "#" + h : "");
+    if (score != null) u.searchParams.set("s", String(score));
+    return u.toString();
   } catch {
     return fallback;
   }
@@ -153,11 +125,8 @@ function clearSharedParam() {
   if (typeof window === "undefined") return;
   try {
     const u = new URL(window.location.href);
-    // 레거시 쿼리 파라미터(?s=, ?from=)도 함께 정리
     u.searchParams.delete("s");
-    u.searchParams.delete("from");
-    const q = u.searchParams.toString();
-    const newUrl = u.pathname + (q ? "?" + q : "");
+    const newUrl = u.pathname + (u.searchParams.toString() ? "?" + u.searchParams.toString() : "") + u.hash;
     window.history.replaceState({}, "", newUrl);
   } catch {
     /* ignore */
@@ -170,24 +139,18 @@ export default function VFQNearSurvey() {
   const [idx, setIdx] = useState(0);
   const [answers, setAnswers] = useState(Array(6).fill(null));
   const [showShare, setShowShare] = useState(false);
-  const [shareMode, setShareMode] = useState(null);
   const [shareToast, setShareToast] = useState("");
   const [sharedScore, setSharedScore] = useState(null);
-  const [referral, setReferral] = useState(null);
   const initRef = useRef(false);
 
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
     const score = parseSharedScore();
-    const ref = parseReferral();
     if (score !== null) {
       setSharedScore(score);
       setStage("shared_view");
       track("vfq_shared_view", { shared_score: score });
-    } else if (ref === "share") {
-      setReferral("share");
-      track("vfq_landing_view", { referral: "share" });
     } else {
       track("vfq_landing_view");
     }
@@ -208,7 +171,7 @@ export default function VFQNearSurvey() {
   const sharedInterp = useMemo(() => interpret(sharedScore), [sharedScore]);
 
   const handleStart = () => {
-    track("vfq_start_click", referral ? { referral } : {});
+    track("vfq_start_click");
     setIdx(0);
     setAnswers(Array(6).fill(null));
     setStage("survey");
@@ -248,6 +211,7 @@ export default function VFQNearSurvey() {
     setStage("landing");
   };
 
+  // 새 핸들러: 애프터눈 안과 보기 → 외부 링크로 이동
   const handleViewHospitals = () => {
     track("vfq_view_hospitals_click", { score: result.score });
     if (typeof window !== "undefined") {
@@ -255,29 +219,15 @@ export default function VFQNearSurvey() {
     }
   };
 
-  const handleShare = async (mode) => {
-    track("vfq_share_open", { share_type: mode });
-    setShareMode(mode);
-
-    const score = mode === "with_score" ? result.score : null;
-    const url = buildShareUrl(mode, score);
-    const text =
-      mode === "with_score"
-        ? "1분이면 끝나는 근거리 시력 자가 점검, 같이 해보실래요? (애프터눈)"
-        : "근거리 시력으로 인한 일상의 불편함을 점검해봤어요. 같이 보시겠어요?(애프터눈)";
-
+  const handleShare = async () => {
+    track("vfq_share_open");
+    const score = result.score;
+    const url = buildShareUrl(score);
+    const text = "내 근거리 시력 자가점검 결과를 봐주세요. 1분이면 점검 가능해요. (애프터눈)";
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
-        await navigator.share({
-          title: "AfterNOON · 근거리 시력 불편 자가점검",
-          text,
-          url,
-        });
-        track("vfq_share_click", {
-          method: "web_share_api",
-          share_type: mode,
-          shared_score: score,
-        });
+        await navigator.share({ title: "AfterNOON · 근거리 시력 자가점검", text, url });
+        track("vfq_share_click", { method: "web_share_api", shared_score: score });
       } catch (_) {
         /* user cancelled */
       }
@@ -287,17 +237,12 @@ export default function VFQNearSurvey() {
   };
 
   const copyLink = async () => {
-    const mode = shareMode || "with_score";
-    const score = mode === "with_score" ? result.score : null;
-    const url = buildShareUrl(mode, score);
+    const score = result.score;
+    const url = buildShareUrl(score);
     try {
       await navigator.clipboard.writeText(url);
       setShareToast("링크가 복사되었어요");
-      track("vfq_share_click", {
-        method: "copy_link",
-        share_type: mode,
-        shared_score: score,
-      });
+      track("vfq_share_click", { method: "copy_link", shared_score: score });
     } catch {
       setShareToast("복사에 실패했어요. 길게 눌러 직접 복사해 주세요.");
     }
@@ -333,9 +278,7 @@ export default function VFQNearSurvey() {
           paddingBottom: 24,
         }}
       >
-        {stage === "landing" && (
-          <Landing C={C} onStart={handleStart} referral={referral} />
-        )}
+        {stage === "landing" && <Landing C={C} onStart={handleStart} />}
 
         {stage === "shared_view" && (
           <SharedView
@@ -366,8 +309,7 @@ export default function VFQNearSurvey() {
             result={result}
             interp={interp}
             onViewHospitals={handleViewHospitals}
-            onShareWithScore={() => handleShare("with_score")}
-            onShareSurveyOnly={() => handleShare("survey_only")}
+            onShare={handleShare}
             onRestart={handleRestart}
           />
         )}
@@ -381,10 +323,7 @@ export default function VFQNearSurvey() {
               <SheetButton
                 C={C}
                 onClick={() => {
-                  track("vfq_share_click", {
-                    method: "kakao_placeholder",
-                    share_type: shareMode,
-                  });
+                  track("vfq_share_click", { method: "kakao_placeholder" });
                   setShareToast("카카오톡 공유는 준비 중이에요");
                   setTimeout(() => setShareToast(""), 2200);
                   setShowShare(false);
@@ -421,33 +360,12 @@ export default function VFQNearSurvey() {
 
 /* ============ 서브 컴포넌트 ============ */
 
-function Landing({ C, onStart, referral }) {
+function Landing({ C, onStart }) {
   return (
     <div style={{ padding: "32px 24px 120px" }}>
       <div style={{ fontSize: 14, color: C.sub, fontWeight: 600, letterSpacing: 0.2 }}>
         AfterNOON · 자가 점검
       </div>
-
-      {referral === "share" && (
-        <div
-          style={{
-            marginTop: 14,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "6px 12px",
-            background: C.primaryLight,
-            borderRadius: 999,
-            fontSize: 13,
-            color: C.text,
-            fontWeight: 600,
-          }}
-        >
-          <span>💬</span>
-          <span>지인이 시력 자가점검을 추천해줬어요</span>
-        </div>
-      )}
-
       <h1
         style={{
           fontSize: 28,
@@ -462,9 +380,9 @@ function Landing({ C, onStart, referral }) {
         얼마나 잘 보이세요?
       </h1>
       <p style={{ fontSize: 17, lineHeight: 1.6, color: C.sub, margin: 0 }}>
-        짧은 60초 설문만으로
+        6개 문항으로 근거리 시생활의 어려움을
         <br />
-        나의 시력이 일상에 얼마나 영향을 주는지 점검할 수 있어요
+        간단히 점검해 드려요. 약 1분 소요됩니다.
       </p>
       <div
         style={{
@@ -477,10 +395,10 @@ function Landing({ C, onStart, referral }) {
       >
         <div style={{ fontSize: 56, lineHeight: 1, marginBottom: 8 }}>👁️</div>
         <div style={{ fontSize: 16, color: C.text, fontWeight: 600 }}>
-          글자, 영수증, 손작업 등…
+          글자, 영수증, 손작업…
         </div>
         <div style={{ fontSize: 14, color: C.sub, marginTop: 4 }}>
-          일상 생활에서의 시력을 되돌아봐요
+          가까운 시야 활동을 점검해 보세요
         </div>
       </div>
       <ul
@@ -494,9 +412,9 @@ function Landing({ C, onStart, referral }) {
         }}
       >
         {[
-          "본인 인증 없이 간편하게",
-          "점수로 해석하는 나의 안구 건강",
-          "가족·지인에게 내 점수와 자가점검 설문도 공유해보세요",
+          "본인 인증 없이 바로 시작할 수 있어요",
+          "결과는 점수와 한눈에 보는 해석으로 드려요",
+          "가족·지인에게도 링크로 쉽게 공유할 수 있어요",
         ].map((t, i) => (
           <li
             key={i}
@@ -514,7 +432,7 @@ function Landing({ C, onStart, referral }) {
         ))}
       </ul>
       <p style={{ fontSize: 12, color: C.ph, marginTop: 24, lineHeight: 1.5 }}>
-        본 점검은 의학적 진단을 대체하지 않으며, 일상에서 느끼는 시력 관련 불편을 가늠하기 위한 자가 설문입니다.
+        본 점검은 의학적 진단을 대체하지 않으며, 일상의 시생활 어려움을 가늠하기 위한 자가 설문입니다.
       </p>
       <FixedCTA C={C}>
         <button
@@ -551,7 +469,7 @@ function SharedView({ C, score, interp, onStart }) {
 
       <h1
         style={{
-          fontSize: 25,
+          fontSize: 26,
           lineHeight: 1.35,
           fontWeight: 700,
           margin: "8px 0 24px",
@@ -560,7 +478,7 @@ function SharedView({ C, score, interp, onStart }) {
       >
         지인의 근거리 시력은
         <br />
-        일상에 얼마나 영향을 줄까요?
+        어떨까요?
       </h1>
 
       <div
@@ -619,17 +537,17 @@ function SharedView({ C, score, interp, onStart }) {
             lineHeight: 1.4,
           }}
         >
-          '나는 어떨까?' 60초면 확인할 수 있어요
+          나의 근거리 시력은 어떨까요?
         </div>
         <div style={{ fontSize: 14, color: C.sub, lineHeight: 1.55 }}>
-          6개 문항으로 간단하게
+          같은 6개 문항으로 1분이면 끝나요.
           <br />
-          나의 근거리 시력 점수를 확인해보세요
+          본인 인증도 필요하지 않아요.
         </div>
       </div>
 
       <p style={{ fontSize: 12, color: C.ph, marginTop: 24, lineHeight: 1.5 }}>
-        본 점검은 의학적 진단을 대체하지 않으며, 일상에서 느끼는 시력 관련 불편을 가늠하기 위한 자가 설문입니다.
+        본 점검은 의학적 진단을 대체하지 않으며, 일상의 시생활 어려움을 가늠하기 위한 자가 설문입니다.
       </p>
 
       <FixedCTA C={C}>
@@ -647,7 +565,7 @@ function SharedView({ C, score, interp, onStart }) {
             cursor: "pointer",
           }}
         >
-          내 근거리 시력 불편도 점검해보기
+          내 근거리 시생활 점수도 확인하기
         </button>
       </FixedCTA>
     </div>
@@ -818,16 +736,7 @@ function Survey({ C, idx, total, question, answer, onPick, onNext, onPrev }) {
   );
 }
 
-function Results({
-  C,
-  answers,
-  result,
-  interp,
-  onViewHospitals,
-  onShareWithScore,
-  onShareSurveyOnly,
-  onRestart,
-}) {
+function Results({ C, answers, result, interp, onViewHospitals, onShare, onRestart }) {
   const { score, naCount } = result;
   return (
     <div style={{ padding: "16px 0 32px" }}>
@@ -842,11 +751,10 @@ function Results({
             lineHeight: 1.4,
           }}
         >
-          근거리 시력 불편 자가점검
+          근거리 시생활 자가점검
         </h1>
       </div>
 
-      {/* 점수 카드 */}
       <div
         style={{
           margin: "16px",
@@ -903,7 +811,7 @@ function Results({
         )}
       </div>
 
-      {/* 1차 CTA: 애프터눈 안과 보기 */}
+      {/* === 신규: 애프터눈 안과 보기 박스 (기존 저장 박스 자리) === */}
       <div
         style={{
           margin: "0 16px 16px",
@@ -945,54 +853,6 @@ function Results({
         </button>
       </div>
 
-      {/* 2차 액션: 공유 버튼 2종 — 응답 요약 위로 위치 변경 */}
-      <div
-        style={{
-          padding: "0 16px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          marginBottom: 24,
-        }}
-      >
-        <button
-          onClick={onShareWithScore}
-          style={{
-            width: "100%",
-            minHeight: 60,
-            background: C.card,
-            color: C.primary,
-            fontSize: 16,
-            fontWeight: 700,
-            border: `2px solid ${C.primary}`,
-            borderRadius: 8,
-            cursor: "pointer",
-            lineHeight: 1.4,
-            padding: "10px 12px",
-          }}
-        >
-          🏆 내 점수와 함께 설문 공유하기
-        </button>
-
-        <button
-          onClick={onShareSurveyOnly}
-          style={{
-            width: "100%",
-            height: 56,
-            background: C.card,
-            color: C.sub,
-            fontSize: 15,
-            fontWeight: 600,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            cursor: "pointer",
-          }}
-        >
-          💬 설문만 공유하기
-        </button>
-      </div>
-
-      {/* 정보 영역: 응답 요약 — 헤더 라벨 명확화 + 톤 약화 */}
       <div
         style={{
           margin: "0 16px 16px",
@@ -1004,14 +864,13 @@ function Results({
         <div
           style={{
             padding: "14px 16px",
-            fontSize: 13,
-            fontWeight: 600,
-            color: C.sub,
+            fontSize: 14,
+            fontWeight: 700,
+            color: C.text,
             borderBottom: `1px solid ${C.divider}`,
-            background: C.bg,
           }}
         >
-          내가 응답한 내용 보기
+          내 응답 요약
         </div>
         {answers.map((a, i) => {
           const choice = CHOICES.find((c) => c.value === a);
@@ -1045,8 +904,30 @@ function Results({
         })}
       </div>
 
-      {/* 4차 액션: 다시 하기 */}
-      <div style={{ padding: "0 16px" }}>
+      <div
+        style={{
+          padding: "0 16px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+        }}
+      >
+        <button
+          onClick={onShare}
+          style={{
+            width: "100%",
+            height: 56,
+            background: C.card,
+            color: C.primary,
+            fontSize: 16,
+            fontWeight: 700,
+            border: `2px solid ${C.primary}`,
+            borderRadius: 8,
+            cursor: "pointer",
+          }}
+        >
+          🔗 가족·지인에게 공유하기
+        </button>
         <button
           onClick={onRestart}
           style={{
@@ -1072,7 +953,7 @@ function Results({
           lineHeight: 1.6,
         }}
       >
-        본 결과는 NEI VFQ-25(미국 국립안연구소 시각기능 설문)의 근거리 영역 6문항을 기반으로 산출된 시생활 자가 점수이며, 의학적 진단을 대체하지 않습니다.
+        본 결과는 NEI VFQ-25의 표준 변환식을 기반으로 산출된 자가 점검 점수이며, 의학적 진단을 대체하지 않습니다.
         지속되는 불편감이 있다면 가까운 안과에서 진료를 받아 보세요.
       </p>
     </div>
